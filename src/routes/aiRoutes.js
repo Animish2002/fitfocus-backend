@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.use(authenticateToken);
 
-// POST /api/ai/chat - Send a prompt to AI and get response, manage conversation history (general chat)
+
 router.post("/chat", aiController.chatWithAI);
 
 // POST /api/ai/command - Interpret natural language commands for structured updates

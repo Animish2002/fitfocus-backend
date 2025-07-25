@@ -1,6 +1,6 @@
 // src/controllers/aiController.js
 const { PrismaClient } = require("@prisma/client");
-const fetch = require("node-fetch").default; // Ensure node-fetch is installed: npm install node-fetch
+const fetch = require("node-fetch").default;
 
 const prisma = new PrismaClient();
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -13,11 +13,40 @@ if (!GEMINI_API_KEY) {
   process.exit(1);
 }
 
+// Helper function to call Gemini API with a specific payload
+async function callGeminiApi(payload, responseSchema) {
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const fetchOptions = {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: payload.contents,
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: responseSchema,
+      },
+    }),
+  };
+
+  const aiResponse = await fetch(apiUrl, fetchOptions);
+
+  if (!aiResponse.ok) {
+    const errorData = await aiResponse.json();
+    console.error("Gemini API Error:", errorData);
+    throw new Error(
+      errorData.error?.message || "Failed to get AI response from Gemini API."
+    );
+  }
+
+  const result = await aiResponse.json();
+  // Directly parse the text part which should be JSON
+  return JSON.parse(result.candidates[0].content.parts[0].text);
+}
+
 const aiController = {
- 
   async chatWithAI(req, res) {
     try {
-      const userId = req.user.userId; // Get userId from authenticated token
+      const userId = req.user.userId;
       const { prompt, conversationId } = req.body;
 
       if (!prompt) {
@@ -27,11 +56,10 @@ const aiController = {
       let currentConversation;
       let chatHistory = [];
 
-      // If a conversationId is provided, retrieve existing conversation and messages
       if (conversationId) {
         currentConversation = await prisma.conversation.findUnique({
-          where: { id: conversationId, userId: userId }, // Ensure user owns the conversation
-          include: { messages: { orderBy: { timestamp: "asc" } } }, // Order messages chronologically
+          where: { id: conversationId, userId: userId },
+          include: { messages: { orderBy: { timestamp: "asc" } } },
         });
 
         if (!currentConversation) {
@@ -40,24 +68,20 @@ const aiController = {
             .json({ message: "Conversation not found or unauthorized." });
         }
 
-        // Build chat history for Gemini API, excluding the 'id', 'conversationId', 'createdAt', 'updatedAt' fields
         chatHistory = currentConversation.messages.map((msg) => ({
           role: msg.role,
           parts: [{ text: msg.text }],
         }));
       } else {
-        // If no conversationId, create a new conversation
         currentConversation = await prisma.conversation.create({
           data: {
             userId: userId,
-            // Create a simple title from the first part of the prompt
             title:
               prompt.length > 50 ? prompt.substring(0, 47) + "..." : prompt,
           },
         });
       }
 
-      // Add the user's current prompt to the chat history and save it to the database
       chatHistory.push({ role: "user", parts: [{ text: prompt }] });
       await prisma.message.create({
         data: {
@@ -67,7 +91,6 @@ const aiController = {
           timestamp: new Date(),
         },
       });
-      console.log("Chat prompt added:", prompt);
 
       const payload = { contents: chatHistory };
       const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -134,8 +157,21 @@ const aiController = {
         return res.status(400).json({ message: "Command is required." });
       }
 
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, age: true, bodyweight: true, bmi: true },
+      });
+
+      const userName = user?.name || "User";
+      const userAge = user?.age || "N/A";
+      const userWeight = user?.bodyweight ? parseFloat(user.bodyweight) : null;
+      const userBMI = user?.bmi ? parseFloat(user.bmi) : null;
+
       const aiPrompt = `
         The user has provided a command. Your task is to extract the intent and relevant details from this command in a structured JSON format.
+        User's Profile: Name: ${userName}, Age: ${userAge}, Weight: ${
+        userWeight || "N/A"
+      } kg, BMI: ${userBMI || "N/A"}.
 
         Possible intents and their required fields:
         1.  "complete_schedule_item": User completed a scheduled activity.
@@ -150,14 +186,19 @@ const aiController = {
             Fields: { "intent": "create_goal", "name": "string", "category": "fitness" | "study" | "personal" | "wellness", "targetValue": "number (optional)", "unit": "string (optional)", "dueDate": "YYYY-MM-DD (optional)", "description": "string (optional)" }
         6.  "create_schedule_item": User wants to add a new schedule item.
             Fields: { "intent": "create_schedule_item", "activity": "string", "time": "HH:MM (24-hour format) or HH:MM AM/PM", "date": "YYYY-MM-DD (optional, default today)", "type": "fitness" | "study" | "misc" (optional) }
-        7.  "unknown": If the intent cannot be clearly determined.
+        7.  "suggest_study_plan": User wants a study plan.
+            Fields: { "intent": "suggest_study_plan", "topic": "string (required)", "context": "string (optional, additional details)" }
+        8.  "suggest_fitness_plan": User wants a fitness/diet plan.
+            Fields: { "intent": "suggest_fitness_plan", "targetWeightKg": "number (optional)", "targetTimePeriodDays": "number (optional)", "context": "string (optional, e.g., current activity level, dietary preferences)" }
+        9.  "unknown": If the intent cannot be clearly determined.
             Fields: { "intent": "unknown", "reason": "string" }
 
         Strictly output only the JSON object. Do not include any other text or markdown.
         User command: "${command}"
       `;
 
-      const responseSchema = {
+      // Schema for the *initial* intent recognition and parameter extraction
+      const intentRecognitionSchema = {
         type: "OBJECT",
         properties: {
           intent: { type: "STRING" },
@@ -179,48 +220,27 @@ const aiController = {
           activity: { type: "STRING" },
           time: { type: "STRING" },
           date: { type: "STRING" },
+          targetWeightKg: { type: "NUMBER" },
+          targetTimePeriodDays: { type: "NUMBER" },
+          context: { type: "STRING" },
           reason: { type: "STRING" },
         },
       };
 
-      const payload = {
-        contents: [{ role: "user", parts: [{ text: aiPrompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: responseSchema,
-        },
-      };
-
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
-
-      const aiResponse = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!aiResponse.ok) {
-        const errorData = await aiResponse.json();
-        console.error("Gemini API Structured Error:", errorData);
-        return res.status(aiResponse.status).json({
-          message:
-            errorData.error?.message || "Failed to get structured AI response.",
-          error: process.env.NODE_ENV === "development" ? errorData : undefined,
-        });
-      }
-
-      const result = await aiResponse.json();
-      const aiParsedData = JSON.parse(
-        result.candidates[0].content.parts[0].text
+      const aiParsedIntent = await callGeminiApi(
+        { contents: [{ role: "user", parts: [{ text: aiPrompt }] }] },
+        intentRecognitionSchema
       );
-      console.log("AI Parsed Data:", aiParsedData);
+      console.log("AI Parsed Intent Data:", aiParsedIntent);
 
       let responseMessage = "Command processed.";
       let updatedEntity = null;
+      let suggestedPlan = null; // New field for plan suggestions
 
-      switch (aiParsedData.intent) {
+      // --- Process AI's Intent ---
+      switch (aiParsedIntent.intent) {
         case "complete_schedule_item": {
-          const { activityName, date, type } = aiParsedData;
+          const { activityName, date, type } = aiParsedIntent;
           const targetDate = date ? new Date(date) : new Date();
           targetDate.setUTCHours(0, 0, 0, 0);
 
@@ -252,7 +272,7 @@ const aiController = {
         }
 
         case "set_goal_progress": {
-          const { goalName, progress } = aiParsedData;
+          const { goalName, progress } = aiParsedIntent;
           if (typeof progress !== "number" || progress < 0 || progress > 100) {
             responseMessage = "Invalid progress value provided by AI.";
             break;
@@ -283,7 +303,7 @@ const aiController = {
 
         case "log_fitness_activity": {
           const { workoutName, durationMinutes, caloriesBurned, type } =
-            aiParsedData;
+            aiParsedIntent;
           if (!workoutName || typeof durationMinutes !== "number") {
             responseMessage =
               "Missing required fields for logging fitness activity.";
@@ -304,7 +324,7 @@ const aiController = {
         }
 
         case "log_study_session": {
-          const { topic, durationMinutes, notes } = aiParsedData;
+          const { topic, durationMinutes, notes } = aiParsedIntent;
           if (!topic || typeof durationMinutes !== "number") {
             responseMessage =
               "Missing required fields for logging study session.";
@@ -326,7 +346,7 @@ const aiController = {
 
         case "create_goal": {
           const { name, category, targetValue, unit, dueDate, description } =
-            aiParsedData;
+            aiParsedIntent;
           if (!name || !category) {
             responseMessage =
               "Missing required fields for creating a goal (name, category).";
@@ -350,7 +370,7 @@ const aiController = {
         }
 
         case "create_schedule_item": {
-          const { activity, time, date, type } = aiParsedData;
+          const { activity, time, date, type } = aiParsedIntent;
           if (!activity || !time) {
             responseMessage =
               "Missing required fields for creating a schedule item (activity, time).";
@@ -371,15 +391,213 @@ const aiController = {
           break;
         }
 
+        case "suggest_study_plan": {
+          const { topic, context } = aiParsedIntent;
+          if (!topic) {
+            return res
+              .status(400)
+              .json({
+                message: "Study topic is required for suggesting a study plan.",
+              });
+          }
+
+          const studyPlanPrompt = `
+            Generate a structured study plan in JSON format for the topic: "${topic}".
+            ${context ? `Consider this additional context: "${context}".` : ""}
+            User's Profile: Name: ${userName}, Age: ${userAge}.
+
+            The plan should include:
+            - 'topic': The main topic.
+            - 'recommendedDurationMinutes': Recommended study duration in minutes.
+            - 'practiceQuestions': Recommended number of practice questions.
+            - 'difficultyLevel': Estimated difficulty (e.g., "Beginner", "Intermediate", "Advanced").
+            - 'subtopics': An array of key sub-topics to cover.
+            - 'briefOutline': A short summary of what the plan covers.
+            - 'category': Always "Study".
+
+            Strictly output only the JSON object. Do not include any other text or markdown.
+          `;
+          const studyPlanSchema = {
+            type: "OBJECT",
+            properties: {
+              topic: { type: "STRING" },
+              recommendedDurationMinutes: { type: "NUMBER" },
+              practiceQuestions: { type: "NUMBER" },
+              difficultyLevel: { type: "STRING" },
+              subtopics: {
+                type: "ARRAY",
+                items: { type: "STRING" },
+              },
+              briefOutline: { type: "STRING" },
+              category: { type: "STRING", enum: ["Study"] },
+            },
+            required: [
+              "topic",
+              "recommendedDurationMinutes",
+              "practiceQuestions",
+              "difficultyLevel",
+              "subtopics",
+              "briefOutline",
+              "category",
+            ],
+          };
+          suggestedPlan = await callGeminiApi(
+            {
+              contents: [{ role: "user", parts: [{ text: studyPlanPrompt }] }],
+            },
+            studyPlanSchema
+          );
+          responseMessage = "Study plan suggested successfully.";
+          break;
+        }
+
+        case "suggest_fitness_plan": {
+          const { targetWeightKg, targetTimePeriodDays, context } =
+            aiParsedIntent;
+
+          // If AI couldn't extract targetWeightKg/targetTimePeriodDays, use defaults or prompt user
+          // For now, let's assume if the intent is recognized, some form of goal is implied.
+          // The AI prompt will be structured to handle missing specific numbers if it couldn't infer them.
+          let fitnessPromptContext = "";
+          if (userWeight && userBMI) {
+            fitnessPromptContext = `Current stats: Weight ${userWeight} kg, BMI ${userBMI}.`;
+          } else if (userWeight) {
+            fitnessPromptContext = `Current weight: ${userWeight} kg.`;
+          } else if (userBMI) {
+            fitnessPromptContext = `Current BMI: ${userBMI}.`;
+          } else {
+            fitnessPromptContext = `Current stats are not fully available.`;
+          }
+
+          const fitnessPlanPrompt = `
+            Generate a personalized fitness and diet plan in JSON format for ${userName} (Age: ${userAge}).
+            ${fitnessPromptContext}
+            ${
+              targetWeightKg
+                ? `Goal: Reduce weight to ${targetWeightKg} kg.`
+                : ""
+            }
+            ${
+              targetTimePeriodDays
+                ? `Time period: ${targetTimePeriodDays} days.`
+                : ""
+            }
+            ${context ? `Additional context: "${context}".` : ""}
+
+            The plan should include:
+            - 'summary': A brief motivational summary of the plan.
+            - 'dailyCalorieIntake': Recommended daily calorie intake (number).
+            - 'exerciseRecommendations': An array of exercise types and their details.
+                Each exercise object should have:
+                - 'type': "Cardio" | "Weight Training" | "Flexibility" | "Other"
+                - 'name': Specific exercise name (e.g., "HIIT", "Full Body Strength", "Yoga")
+                - 'frequencyPerWeek': Number of times per week (number).
+                - 'durationMinutesPerSession': Duration per session in minutes (number).
+                - 'notes': Specific instructions or examples (string).
+            - 'dietTips': An array of general diet tips (string).
+            - 'suggestedGoals': An array of specific goals derived from this plan.
+                Each goal object should have:
+                - 'name': Goal name (string).
+                - 'category': "Fitness" | "Nutrition" (string).
+                - 'targetValue': Numerical target (optional, number).
+                - 'unit': Unit for target (optional, string).
+                - 'dueDate': YYYY-MM-DD (optional, string).
+                - 'description': Goal description (string).
+
+            Strictly output only the JSON object. Do not include any other text or markdown.
+          `;
+
+          const fitnessPlanSchema = {
+            type: "OBJECT",
+            properties: {
+              summary: { type: "STRING" },
+              dailyCalorieIntake: { type: "NUMBER" },
+              exerciseRecommendations: {
+                type: "ARRAY",
+                items: {
+                  type: "OBJECT",
+                  properties: {
+                    type: {
+                      type: "STRING",
+                      enum: [
+                        "Cardio",
+                        "Weight Training",
+                        "Flexibility",
+                        "Other",
+                      ],
+                    },
+                    name: { type: "STRING" },
+                    frequencyPerWeek: { type: "NUMBER" },
+                    durationMinutesPerSession: { type: "NUMBER" },
+                    notes: { type: "STRING" },
+                  },
+                  required: [
+                    "type",
+                    "name",
+                    "frequencyPerWeek",
+                    "durationMinutesPerSession",
+                    "notes",
+                  ],
+                },
+              },
+              dietTips: {
+                type: "ARRAY",
+                items: { type: "STRING" },
+              },
+              suggestedGoals: {
+                type: "ARRAY",
+                items: {
+                  type: "OBJECT",
+                  properties: {
+                    name: { type: "STRING" },
+                    category: {
+                      type: "STRING",
+                      enum: ["Fitness", "Nutrition"],
+                    },
+                    targetValue: { type: "NUMBER" },
+                    unit: { type: "STRING" },
+                    dueDate: { type: "STRING" },
+                    description: { type: "STRING" },
+                  },
+                  required: ["name", "category", "description"],
+                },
+              },
+            },
+            required: [
+              "summary",
+              "dailyCalorieIntake",
+              "exerciseRecommendations",
+              "dietTips",
+              "suggestedGoals",
+            ],
+          };
+
+          suggestedPlan = await callGeminiApi(
+            {
+              contents: [
+                { role: "user", parts: [{ text: fitnessPlanPrompt }] },
+              ],
+            },
+            fitnessPlanSchema
+          );
+          responseMessage = "Fitness plan suggested successfully.";
+          break;
+        }
+
         case "unknown":
         default:
           responseMessage =
-            aiParsedData.reason ||
+            aiParsedIntent.reason ||
             "I couldn't understand that command. Please be more specific.";
           break;
       }
 
-      res.status(200).json({ message: responseMessage, updatedEntity });
+      // Return the appropriate response based on intent
+      if (suggestedPlan) {
+        res.status(200).json({ message: responseMessage, suggestedPlan });
+      } else {
+        res.status(200).json({ message: responseMessage, updatedEntity });
+      }
     } catch (error) {
       console.error("Error in processNaturalLanguageCommand:", error);
       res.status(500).json({
@@ -512,12 +730,9 @@ const aiController = {
         isNaN(targetTimePeriodDays) ||
         targetTimePeriodDays <= 0
       ) {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Missing or invalid targetWeightKg or targetTimePeriodDays.",
-          });
+        return res.status(400).json({
+          message: "Missing or invalid targetWeightKg or targetTimePeriodDays.",
+        });
       }
 
       // Fetch user's profile data from the database
@@ -780,7 +995,6 @@ const aiController = {
       });
     }
   },
-  
 };
 
 module.exports = aiController;
