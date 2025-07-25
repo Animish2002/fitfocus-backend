@@ -4,7 +4,6 @@ const authenticateToken = require("../middlewares/authenticateToken");
 
 const router = express.Router();
 
-
 router.use(authenticateToken);
 
 
@@ -14,6 +13,6 @@ router.get("/conversations", aiController.getConversations);
 
 router.get("/conversations/:id", aiController.getConversationById);
 
-router.delete("/conversations/:id", aiController.deleteConversation);
+router.delete("/delete-conversations/:id", aiController.deleteConversation);
 
 module.exports = router;

@@ -20,6 +20,8 @@ const authRoutes = require("./src/routes/authRoutes");
 app.use("/api/auth", authRoutes);
 const userRoutes = require("./src/routes/userRoutes");
 app.use("/api/user", userRoutes);
+const aiRoutes = require("./src/routes/aiRoutes");
+app.use("/api/ai", aiRoutes);
 
 app.get("/", (req, res) => {
   res.send("FitFocus Backend API is running!");

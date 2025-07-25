@@ -1,5 +1,6 @@
 const { PrismaClient } = require("@prisma/client");
-const fetch = require("node-fetch"); 
+const fetch = require("node-fetch").default;
+
 
 const prisma = new PrismaClient();
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -9,11 +10,10 @@ if (!GEMINI_API_KEY) {
   console.error(
     "FATAL ERROR: GEMINI_API_KEY is not defined in environment variables."
   );
-  process.exit(1); 
+  process.exit(1);
 }
 
 const aiController = {
-
   async chatWithAI(req, res) {
     try {
       const userId = req.user.userId;
@@ -106,12 +106,10 @@ const aiController = {
         },
       });
 
-      res
-        .status(200)
-        .json({
-          response: aiTextResponse,
-          conversationId: currentConversation.id,
-        });
+      res.status(200).json({
+        response: aiTextResponse,
+        conversationId: currentConversation.id,
+      });
     } catch (error) {
       console.error("Error in chatWithAI:", error);
       res.status(500).json({
@@ -203,11 +201,9 @@ const aiController = {
       });
 
       if (!conversationToDelete) {
-        return res
-          .status(404)
-          .json({
-            message: "Conversation not found or unauthorized to delete.",
-          });
+        return res.status(404).json({
+          message: "Conversation not found or unauthorized to delete.",
+        });
       }
 
       await prisma.conversation.delete({
