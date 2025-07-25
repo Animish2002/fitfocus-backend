@@ -7,5 +7,6 @@ router.use(authenticateToken);
 
 router.get("/profile/:id", userController.getProfile);
 router.put("/edit-profile/:id", userController.editProfile);
+router.delete("/delete-user/:id", userController.deleteUser);
 
 module.exports = router;

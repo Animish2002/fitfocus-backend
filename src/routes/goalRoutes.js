@@ -8,12 +8,12 @@ router.use(authenticateToken);
 
 router.post("/", goalController.createGoal);
 
-router.get("/", goalController.getGoals);
+router.get("/get-goals", goalController.getGoals);
 
-router.get("/:id", goalController.getGoalById);
+router.get("/get-goals/:id", goalController.getGoalById);
 
 router.put("/:id", goalController.updateGoal);
 
-router.delete("/:id", goalController.deleteGoal);
+router.delete("/delete-goals/:id", goalController.deleteGoal);
 
 module.exports = router;
