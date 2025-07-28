@@ -10,10 +10,10 @@ app.use(express.json());
 // CORS Configuration
 app.use(
   cors({
-    origin: frontendUrl, // Replace with your frontend URL in production
-    methods: "GET,HEAD,PUT,PATCH,POST,DELETE", // Specify allowed HTTP methods
-    credentials: true, // Allow cookies, authorization headers, etc.
-    optionsSuccessStatus: 204, // For preflight requests
+    // origin: frontendUrl, // Replace with your frontend URL in production
+    // methods: "GET,HEAD,PUT,PATCH,POST,DELETE", // Specify allowed HTTP methods
+    // credentials: true, // Allow cookies, authorization headers, etc.
+    // optionsSuccessStatus: 204, // For preflight requests
   })
 );
 
