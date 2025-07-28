@@ -3,16 +3,17 @@ const express = require("express");
 const cors = require("cors");
 const app = express();
 const PORT = process.env.PORT || 8000;
+const frontendUrl = process.env.FRONTEND_URL;
 
 app.use(express.json());
 
 // CORS Configuration
 app.use(
   cors({
-    // origin: "http://localhost:5173", // Replace with your frontend URL in production
-    // methods: "GET,HEAD,PUT,PATCH,POST,DELETE", // Specify allowed HTTP methods
-    // credentials: true, // Allow cookies, authorization headers, etc.
-    // optionsSuccessStatus: 204, // For preflight requests
+    origin: frontendUrl, // Replace with your frontend URL in production
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE", // Specify allowed HTTP methods
+    credentials: true, // Allow cookies, authorization headers, etc.
+    optionsSuccessStatus: 204, // For preflight requests
   })
 );
 
