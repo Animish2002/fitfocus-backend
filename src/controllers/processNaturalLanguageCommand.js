@@ -13,6 +13,10 @@
 module.exports =
   ({ prisma, callGeminiApi, GEMINI_API_KEY }) =>
   async (req, res) => {
+    // --- IMPORT NOTIFICATION CONTROLLER HERE ---
+    const notificationController = require("./notificationController");
+    // --- END IMPORT ---
+
     try {
       const userId = req.user.userId;
       const { command } = req.body;
@@ -313,7 +317,6 @@ module.exports =
       `;
 
       // Call Gemini for tool selection
-      // rawGeminiResponse will now always be the raw API response from Gemini.
       const rawGeminiResponse = await callGeminiApi(
         {
           contents: [
@@ -324,13 +327,11 @@ module.exports =
         tools
       );
 
-      // --- DEBUGGING LOGS ---
       console.log(
         "DEBUG: rawGeminiResponse after callGeminiApi (STEP 2 - processNaturalLanguageCommand):",
         JSON.stringify(rawGeminiResponse, null, 2)
       );
 
-      // --- CRITICAL CHANGE: Extract functionCall and textResponse from the RAW response ---
       let functionCall = null;
       let textResponse = null;
 
@@ -340,7 +341,6 @@ module.exports =
       ) {
         const candidate = rawGeminiResponse.candidates[0];
 
-        // Check for functionCall within the content parts
         if (
           candidate.content &&
           candidate.content.parts &&
@@ -348,31 +348,24 @@ module.exports =
           candidate.content.parts[0].functionCall
         ) {
           functionCall = candidate.content.parts[0].functionCall;
-        }
-        // If no function call, check for a text response
-        else if (
+        } else if (
           candidate.content &&
           candidate.content.parts &&
           candidate.content.parts.length > 0
         ) {
           textResponse = candidate.content.parts[0].text;
-        }
-        // Fallback for cases where Gemini might respond with just text, but not structured content (less common with tools)
-        else if (candidate.text) {
-          // Older/simpler text response might be directly on candidate
+        } else if (candidate.text) {
           textResponse = candidate.text;
         }
       }
 
-      // --- END DEBUGGING LOGS ---
-
       let responseMessage = "Command processed.";
       let updatedEntity = null;
-      let suggestedPlan = null; // To hold structured plan data
+      let suggestedPlan = null;
 
       // Process AI's Function Call or Text Response
       if (functionCall) {
-        const call = functionCall; // For cleaner access to call.name and call.args
+        const call = functionCall;
         console.log(
           "Gemini called function:",
           call.name,
@@ -385,10 +378,10 @@ module.exports =
             const { activityName, status = "completed", date } = call.args;
             const targetDate = date ? new Date(date) : new Date();
 
-            const updatedItem = await prisma.scheduleItem.findFirst({
+            const existingItem = await prisma.scheduleItem.findFirst({
               where: {
                 userId: userId,
-                activity: { contains: activityName, mode: "insensitive" }, // Case-insensitive search
+                activity: { contains: activityName, mode: "insensitive" },
                 date: {
                   gte: new Date(targetDate.setHours(0, 0, 0, 0)),
                   lt: new Date(targetDate.setHours(23, 59, 59, 999)),
@@ -396,12 +389,46 @@ module.exports =
               },
             });
 
-            if (updatedItem) {
-              updatedEntity = await prisma.scheduleItem.update({
-                where: { id: updatedItem.id },
+            if (existingItem) {
+              const updatedScheduleItem = await prisma.scheduleItem.update({
+                where: { id: existingItem.id },
                 data: { status: status },
               });
-              responseMessage = `Schedule item "${updatedEntity.activity}" marked as ${updatedEntity.status}.`;
+              updatedEntity = updatedScheduleItem; // Set updatedEntity here
+
+              responseMessage = `Schedule item "${updatedScheduleItem.activity}" marked as ${updatedScheduleItem.status}.`;
+
+              // --- NOTIFICATION FOR SCHEDULE ITEM COMPLETION/IN-PROGRESS ---
+              const wasCompleted = updatedScheduleItem.status === "completed";
+              const hadPreviouslyCompleted =
+                existingItem.status === "completed";
+              const wasInProgress =
+                updatedScheduleItem.status === "in-progress";
+              const hadPreviouslyInProgress =
+                existingItem.status === "in-progress";
+
+              if (wasCompleted && !hadPreviouslyCompleted) {
+                await notificationController.sendNotificationToUser(
+                  userId,
+                  "Activity Completed! ✅",
+                  `You marked "${updatedScheduleItem.activity}" as completed. Great job!`,
+                  "/dashboard/schedule"
+                );
+                console.log(
+                  `Notification sent for completed schedule item via AI: ${updatedScheduleItem.activity}`
+                );
+              } else if (wasInProgress && !hadPreviouslyInProgress) {
+                await notificationController.sendNotificationToUser(
+                  userId,
+                  "Activity In Progress! ⏳",
+                  `"${updatedScheduleItem.activity}" is now in progress. Keep pushing!`,
+                  "/dashboard/schedule"
+                );
+                console.log(
+                  `Notification sent for in-progress schedule item via AI: ${updatedScheduleItem.activity}`
+                );
+              }
+              // --- END NOTIFICATION ---
             } else {
               responseMessage = `Could not find a schedule item matching "${activityName}" for the specified date.`;
             }
@@ -419,19 +446,42 @@ module.exports =
                 "Invalid progress value. Please provide a number between 0 and 100.";
               break;
             }
-            const targetGoal = await prisma.goal.findFirst({
+            const existingGoal = await prisma.goal.findFirst({
               where: {
                 userId: userId,
                 name: { contains: goalName, mode: "insensitive" },
               },
             });
 
-            if (targetGoal) {
-              updatedEntity = await prisma.goal.update({
-                where: { id: targetGoal.id },
+            if (existingGoal) {
+              const updatedGoal = await prisma.goal.update({
+                where: { id: existingGoal.id },
                 data: { progress: progress },
               });
-              responseMessage = `Goal "${updatedEntity.name}" progress updated to ${updatedEntity.progress}%.`;
+              updatedEntity = updatedGoal; // Set updatedEntity here
+
+              responseMessage = `Goal "${updatedGoal.name}" progress updated to ${updatedGoal.progress}%.`;
+
+              // --- NOTIFICATION FOR GOAL COMPLETION ---
+              const wasCompleted =
+                updatedGoal.progress >= 100 ||
+                updatedGoal.status === "Completed";
+              const hadPreviouslyCompleted =
+                existingGoal.progress >= 100 ||
+                existingGoal.status === "Completed";
+
+              if (wasCompleted && !hadPreviouslyCompleted) {
+                await notificationController.sendNotificationToUser(
+                  userId,
+                  "Goal Achieved! 🎉",
+                  `Congratulations! You completed your goal: "${updatedGoal.name}"!`,
+                  "/dashboard/goals"
+                );
+                console.log(
+                  `Notification sent for completed goal via AI: ${updatedGoal.name}`
+                );
+              }
+              // --- END NOTIFICATION ---
             } else {
               responseMessage = `Could not find a goal named "${goalName}".`;
             }
@@ -450,7 +500,7 @@ module.exports =
                 "Missing required fields (workout name, duration) for logging fitness activity.";
               break;
             }
-            updatedEntity = await prisma.fitnessLog.create({
+            const newFitnessLog = await prisma.fitnessLog.create({
               data: {
                 userId: userId,
                 workoutName,
@@ -461,7 +511,22 @@ module.exports =
                 date: date ? new Date(date) : new Date(),
               },
             });
-            responseMessage = `Logged fitness activity "${updatedEntity.workoutName}" for ${updatedEntity.durationMinutes} minutes.`;
+            updatedEntity = newFitnessLog; // Set updatedEntity here
+
+            responseMessage = `Logged fitness activity "${newFitnessLog.workoutName}" for ${newFitnessLog.durationMinutes} minutes.`;
+
+            // --- NOTIFICATION FOR NEW FITNESS LOG ---
+            await notificationController.sendNotificationToUser(
+              userId,
+              "Workout Logged! 💪",
+              `You just logged "${newFitnessLog.workoutName}" for ${newFitnessLog.durationMinutes} minutes. Keep up the great work!`,
+              "/dashboard/fitness-logs"
+            );
+            console.log(
+              `Notification sent for new fitness log via AI: ${newFitnessLog.workoutName}`
+            );
+            // --- END NOTIFICATION ---
+
             break;
           }
 
@@ -476,17 +541,32 @@ module.exports =
                 "Missing required fields (topic, duration) for logging study session.";
               break;
             }
-            updatedEntity = await prisma.studySession.create({
+            const newStudySession = await prisma.studySession.create({
               data: {
                 userId: userId,
                 topic,
                 durationMinutes,
                 notes,
                 date: date ? new Date(date) : new Date(),
-                status: "completed", // Default status for logged sessions
+                status: "completed",
               },
             });
-            responseMessage = `Logged study session on "${updatedEntity.topic}" for ${updatedEntity.durationMinutes} minutes.`;
+            updatedEntity = newStudySession; // Set updatedEntity here
+
+            responseMessage = `Logged study session on "${newStudySession.topic}" for ${newStudySession.durationMinutes} minutes.`;
+
+            // --- NOTIFICATION FOR NEW STUDY SESSION ---
+            await notificationController.sendNotificationToUser(
+              userId,
+              "Study Session Logged! 📚",
+              `You just completed a ${newStudySession.durationMinutes}-minute study session on "${newStudySession.topic}". Great focus!`,
+              "/dashboard/study-logs"
+            );
+            console.log(
+              `Notification sent for new study session via AI: ${newStudySession.topic}`
+            );
+            // --- END NOTIFICATION ---
+
             break;
           }
 
@@ -498,7 +578,7 @@ module.exports =
                 "Missing required fields (name, category) for creating a goal.";
               break;
             }
-            updatedEntity = await prisma.goal.create({
+            const newGoal = await prisma.goal.create({
               data: {
                 userId: userId,
                 name,
@@ -507,11 +587,26 @@ module.exports =
                   typeof targetValue === "number" ? targetValue : null,
                 unit: unit || null,
                 dueDate: dueDate ? new Date(dueDate) : null,
-                status: "In Progress", // Default status for new goals
+                status: "In Progress",
                 description: description || null,
               },
             });
-            responseMessage = `Created a new goal: "${updatedEntity.name}" in category "${updatedEntity.category}".`;
+            updatedEntity = newGoal; // Set updatedEntity here
+
+            responseMessage = `Created a new goal: "${newGoal.name}" in category "${newGoal.category}".`;
+
+            // --- NOTIFICATION FOR NEW GOAL ---
+            await notificationController.sendNotificationToUser(
+              userId,
+              "New Goal Set! 🎯",
+              `You just created a new goal: "${newGoal.name}". Let's achieve it!`,
+              "/dashboard/goals"
+            );
+            console.log(
+              `Notification sent for new goal via AI: ${newGoal.name}`
+            );
+            // --- END NOTIFICATION ---
+
             break;
           }
 
@@ -529,7 +624,7 @@ module.exports =
                 "Missing required fields (activity, time) for creating a schedule item.";
               break;
             }
-            updatedEntity = await prisma.scheduleItem.create({
+            const newScheduleItem = await prisma.scheduleItem.create({
               data: {
                 userId: userId,
                 activity,
@@ -540,9 +635,26 @@ module.exports =
                 notes,
               },
             });
-            responseMessage = `Scheduled "${updatedEntity.activity}" for ${
-              updatedEntity.time
-            } ${updatedEntity.date.toISOString().split("T")[0]}.`;
+            updatedEntity = newScheduleItem; // Set updatedEntity here
+
+            responseMessage = `Scheduled "${newScheduleItem.activity}" for ${
+              newScheduleItem.time
+            } ${newScheduleItem.date.toISOString().split("T")[0]}.`;
+
+            // --- NOTIFICATION FOR NEW SCHEDULE ITEM ---
+            await notificationController.sendNotificationToUser(
+              userId,
+              "Activity Scheduled! 🗓️",
+              `"${newScheduleItem.activity}" is now scheduled for ${
+                newScheduleItem.date.toISOString().split("T")[0]
+              } at ${newScheduleItem.time}.`,
+              "/dashboard/schedule"
+            );
+            console.log(
+              `Notification sent for new schedule item via AI: ${newScheduleItem.activity}`
+            );
+            // --- END NOTIFICATION ---
+
             break;
           }
 
@@ -602,17 +714,15 @@ module.exports =
                 "category",
               ],
             };
-            // Now callGeminiApi returns the raw result, so we parse it here.
             const rawPlanResponse = await callGeminiApi(
               {
                 contents: [
                   { role: "user", parts: [{ text: studyPlanPrompt }] },
                 ],
               },
-              studyPlanSchema // This tells Gemini to return JSON
+              studyPlanSchema
             );
 
-            // Extract and parse the JSON from the raw response
             if (
               rawPlanResponse.candidates &&
               rawPlanResponse.candidates.length > 0 &&
@@ -768,13 +878,11 @@ module.exports =
               ],
             };
 
-            // Now callGeminiApi returns the raw result, so we parse it here.
             const rawPlanResponse = await callGeminiApi(
               { contents: [{ role: "user", parts: [{ text: aiPrompt }] }] },
               responseSchema
             );
 
-            // Extract and parse the JSON from the raw response
             if (
               rawPlanResponse.candidates &&
               rawPlanResponse.candidates.length > 0 &&
@@ -811,15 +919,10 @@ module.exports =
             break;
         }
       } else if (textResponse) {
-        // This handles direct text responses from Gemini
         responseMessage = textResponse;
       } else {
-        // Fallback for cases where Gemini doesn't call a function or provide a text response,
-        // which could happen if a responseSchema was used but the data isn't structured as expected,
-        // or if callGeminiApi's fallback was triggered.
         responseMessage =
           "AI did not provide a clear function call or text response.";
-        // Also check if there's any content at all in the raw response, even if not a function call or simple text
         if (
           rawGeminiResponse.candidates &&
           rawGeminiResponse.candidates.length > 0 &&
@@ -833,11 +936,10 @@ module.exports =
         }
       }
 
-      // Final response based on the action taken
       res.status(200).json({
         message: responseMessage,
-        updatedEntity: updatedEntity, // Will be null if no entity was updated
-        suggestedPlan: suggestedPlan, // Will be null if no plan was suggested
+        updatedEntity: updatedEntity,
+        suggestedPlan: suggestedPlan,
       });
     } catch (error) {
       console.error("Error in processNaturalLanguageCommand:", error);

@@ -1,14 +1,9 @@
 const { PrismaClient } = require("@prisma/client");
+const notificationController = require("./notificationController");
 
 const prisma = new PrismaClient();
 
 const goalController = {
-  /**
-   * Create a new goal for the authenticated user.
-   * POST /api/goals
-   * Request Body: { name: string, category: string, targetValue?: number, unit?: string, dueDate?: string, description?: string, initialProgress?: number }
-   * Response: New Goal object
-   */
   async createGoal(req, res) {
     try {
       const userId = req.user.userId; // Get userId from authenticated token
@@ -70,6 +65,13 @@ const goalController = {
         data: goalData,
       });
 
+      await notificationController.sendNotificationToUser(
+        newGoal.userId,
+        "New Goal Added!",
+        `You added a new goal: "${newGoal.name}" 🎉`,
+        "/dashboard/goals" // Link to goals page
+      );
+
       res.status(201).json({
         message: "Goal created successfully.",
         goal: newGoal,
@@ -84,12 +86,6 @@ const goalController = {
     }
   },
 
-  /**
-   * Get all goals for the authenticated user.
-   * GET /api/goals?category=fitness&status=in-progress
-   * Query Params: category, status, sortBy, limit, page
-   * Response: Array of Goal objects
-   */
   async getGoals(req, res) {
     try {
       const userId = req.user.userId;
@@ -149,11 +145,6 @@ const goalController = {
     }
   },
 
-  /**
-   * Get a single goal by its ID for the authenticated user.
-   * GET /api/goals/:id
-   * Response: Single Goal object
-   */
   async getGoalById(req, res) {
     try {
       const userId = req.user.userId;
@@ -180,12 +171,6 @@ const goalController = {
     }
   },
 
-  /**
-   * Update an existing goal for the authenticated user.
-   * PUT /api/goals/:id
-   * Request Body: { name?: string, category?: string, progress?: number, status?: string, dueDate?: string, description?: string }
-   * Response: Updated Goal object
-   */
   async updateGoal(req, res) {
     try {
       const userId = req.user.userId;
@@ -200,6 +185,17 @@ const goalController = {
         dueDate,
         description,
       } = req.body;
+
+      // 1. Fetch the existing goal to compare status/progress later
+      const existingGoal = await prisma.goal.findUnique({
+        where: { id: id, userId: userId },
+      });
+
+      if (!existingGoal) {
+        return res
+          .status(404)
+          .json({ message: "Goal not found or unauthorized to update." });
+      }
 
       // Prepare data for update, only include provided fields
       const updateData = {};
@@ -242,21 +238,22 @@ const goalController = {
         } else {
           const parsedDate = new Date(dueDate);
           if (isNaN(parsedDate.getTime())) {
-            return res
-              .status(400)
-              .json({
-                message: "Invalid dueDate format. Use YYYY-MM-DD or null.",
-              });
+            return res.status(400).json({
+              message: "Invalid dueDate format. Use YYYY-MM-DD or null.",
+            });
           }
           updateData.dueDate = parsedDate;
         }
       }
       if (description !== undefined) updateData.description = description;
 
+      // 2. Perform the update
       const updatedGoal = await prisma.goal.update({
         where: { id: id, userId: userId }, // Ensure user owns the goal
         data: updateData,
       });
+
+      
 
       res.status(200).json({
         message: "Goal updated successfully.",
@@ -278,11 +275,6 @@ const goalController = {
     }
   },
 
-  /**
-   * Delete a goal for the authenticated user.
-   * DELETE /api/goals/:id
-   * Response: 204 No Content
-   */
   async deleteGoal(req, res) {
     try {
       const userId = req.user.userId;

@@ -41,6 +41,9 @@ app.use("/api/study/sessions", studySessionRoutes);
 const dashboardRoutes = require("./src/routes/dashboardRoutes");
 app.use("/api/dashboard", dashboardRoutes);
 
+const notificationRoutes = require("./src/routes/notificationRoutes");
+app.use("/api/notifications", notificationRoutes);
+
 app.get("/", (req, res) => {
   res.send("FitFocus Backend API is running!");
 });

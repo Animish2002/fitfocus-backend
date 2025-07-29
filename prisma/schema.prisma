@@ -33,6 +33,7 @@ model User {
   studySessions StudySession[]
   goals         Goal[]
   conversations Conversation[]
+  pushSubscriptions PushSubscription[] 
 }
 
 // ScheduleItem Model
@@ -147,4 +148,16 @@ model Message {
 
   createdAt DateTime @default(now()) // Redundant with timestamp, but good for consistent auditing
   updatedAt DateTime @updatedAt
+}
+
+model PushSubscription {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String    @unique // The unique URL for the push service
+  p256dh    String    // Auth key
+  auth      String    // Encryption key
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, endpoint]) // A user should only have one subscription per endpoint
 }

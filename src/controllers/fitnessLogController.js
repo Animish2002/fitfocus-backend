@@ -1,9 +1,10 @@
 const { PrismaClient } = require("@prisma/client");
-
 const prisma = new PrismaClient();
 
+const notificationController = require("./notificationController");
+
+
 const fitnessLogController = {
- 
   async createFitnessLog(req, res) {
     try {
       const userId = req.user.userId; // Get userId from authenticated token
@@ -20,8 +21,17 @@ const fitnessLogController = {
       } = req.body;
 
       // Basic validation
-      if (!workoutName || typeof durationMinutes !== 'number' || isNaN(durationMinutes) || durationMinutes <= 0) {
-        return res.status(400).json({ message: "Workout name and valid durationMinutes are required." });
+      if (
+        !workoutName ||
+        typeof durationMinutes !== "number" ||
+        isNaN(durationMinutes) ||
+        durationMinutes <= 0
+      ) {
+        return res
+          .status(400)
+          .json({
+            message: "Workout name and valid durationMinutes are required.",
+          });
       }
 
       // Prepare data, handling optional fields and type conversions
@@ -32,31 +42,57 @@ const fitnessLogController = {
         date: new Date(), // Logged at current time
       };
 
-      if (caloriesBurned !== undefined && typeof caloriesBurned === 'number' && !isNaN(caloriesBurned)) {
+      if (
+        caloriesBurned !== undefined &&
+        typeof caloriesBurned === "number" &&
+        !isNaN(caloriesBurned)
+      ) {
         logData.caloriesBurned = caloriesBurned;
       }
       if (type !== undefined) {
         logData.type = type;
       }
-      if (weightLiftedKg !== undefined && typeof weightLiftedKg === 'number' && !isNaN(weightLiftedKg)) {
+      if (
+        weightLiftedKg !== undefined &&
+        typeof weightLiftedKg === "number" &&
+        !isNaN(weightLiftedKg)
+      ) {
         logData.weightLiftedKg = weightLiftedKg;
       }
-      if (reps !== undefined && typeof reps === 'number' && !isNaN(reps)) {
+      if (reps !== undefined && typeof reps === "number" && !isNaN(reps)) {
         logData.reps = reps;
       }
-      if (sets !== undefined && typeof sets === 'number' && !isNaN(sets)) {
+      if (sets !== undefined && typeof sets === "number" && !isNaN(sets)) {
         logData.sets = sets;
       }
-      if (distanceKm !== undefined && typeof distanceKm === 'number' && !isNaN(distanceKm)) {
+      if (
+        distanceKm !== undefined &&
+        typeof distanceKm === "number" &&
+        !isNaN(distanceKm)
+      ) {
         logData.distanceKm = distanceKm;
       }
-      if (avgHeartRateBpm !== undefined && typeof avgHeartRateBpm === 'number' && !isNaN(avgHeartRateBpm)) {
+      if (
+        avgHeartRateBpm !== undefined &&
+        typeof avgHeartRateBpm === "number" &&
+        !isNaN(avgHeartRateBpm)
+      ) {
         logData.avgHeartRateBpm = avgHeartRateBpm;
       }
 
       const newFitnessLog = await prisma.fitnessLog.create({
         data: logData,
       });
+
+      await notificationController.sendNotificationToUser(
+        userId,
+        "Workout Logged! 💪",
+        `You just logged "${newFitnessLog.workoutName}" for ${newFitnessLog.durationMinutes} minutes. Keep up the great work!`,
+        "/dashboard/fitness-logs" // Assuming a page to view fitness logs
+      );
+      console.log(
+        `Notification sent for new fitness log: ${newFitnessLog.workoutName}`
+      );
 
       res.status(201).json({
         message: "Fitness log created successfully.",
@@ -66,7 +102,8 @@ const fitnessLogController = {
       console.error("Error creating fitness log:", error);
       res.status(500).json({
         message: "An unexpected error occurred while creating the fitness log.",
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       });
     }
   },
@@ -77,7 +114,7 @@ const fitnessLogController = {
       const { date, type, sortBy, limit, page } = req.query;
 
       let whereClause = { userId: userId };
-      let orderByClause = { date: 'desc' }; // Default sort by newest first
+      let orderByClause = { date: "desc" }; // Default sort by newest first
 
       if (date) {
         const targetDate = new Date(date);
@@ -120,7 +157,8 @@ const fitnessLogController = {
       console.error("Error fetching fitness logs:", error);
       res.status(500).json({
         message: "An unexpected error occurred while fetching fitness logs.",
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       });
     }
   },
@@ -135,7 +173,9 @@ const fitnessLogController = {
       });
 
       if (!fitnessLog) {
-        return res.status(404).json({ message: "Fitness log not found or unauthorized." });
+        return res
+          .status(404)
+          .json({ message: "Fitness log not found or unauthorized." });
       }
 
       res.status(200).json(fitnessLog);
@@ -143,7 +183,8 @@ const fitnessLogController = {
       console.error("Error fetching single fitness log:", error);
       res.status(500).json({
         message: "An unexpected error occurred while fetching the fitness log.",
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       });
     }
   },
@@ -167,38 +208,73 @@ const fitnessLogController = {
       // Prepare data for update, only include provided fields
       const updateData = {};
       if (workoutName !== undefined) updateData.workoutName = workoutName;
-      if (durationMinutes !== undefined && typeof durationMinutes === 'number' && !isNaN(durationMinutes) && durationMinutes > 0) {
+      if (
+        durationMinutes !== undefined &&
+        typeof durationMinutes === "number" &&
+        !isNaN(durationMinutes) &&
+        durationMinutes > 0
+      ) {
         updateData.durationMinutes = durationMinutes;
-      } else if (durationMinutes !== undefined) { // If provided but invalid
-        return res.status(400).json({ message: "durationMinutes must be a positive number." });
+      } else if (durationMinutes !== undefined) {
+        // If provided but invalid
+        return res
+          .status(400)
+          .json({ message: "durationMinutes must be a positive number." });
       }
 
-      if (caloriesBurned !== undefined && typeof caloriesBurned === 'number' && !isNaN(caloriesBurned)) {
+      if (
+        caloriesBurned !== undefined &&
+        typeof caloriesBurned === "number" &&
+        !isNaN(caloriesBurned)
+      ) {
         updateData.caloriesBurned = caloriesBurned;
-      } else if (caloriesBurned === null) { updateData.caloriesBurned = null; } // Allow clearing
-      
+      } else if (caloriesBurned === null) {
+        updateData.caloriesBurned = null;
+      } // Allow clearing
+
       if (type !== undefined) updateData.type = type;
 
-      if (weightLiftedKg !== undefined && typeof weightLiftedKg === 'number' && !isNaN(weightLiftedKg)) {
+      if (
+        weightLiftedKg !== undefined &&
+        typeof weightLiftedKg === "number" &&
+        !isNaN(weightLiftedKg)
+      ) {
         updateData.weightLiftedKg = weightLiftedKg;
-      } else if (weightLiftedKg === null) { updateData.weightLiftedKg = null; }
+      } else if (weightLiftedKg === null) {
+        updateData.weightLiftedKg = null;
+      }
 
-      if (reps !== undefined && typeof reps === 'number' && !isNaN(reps)) {
+      if (reps !== undefined && typeof reps === "number" && !isNaN(reps)) {
         updateData.reps = reps;
-      } else if (reps === null) { updateData.reps = null; }
+      } else if (reps === null) {
+        updateData.reps = null;
+      }
 
-      if (sets !== undefined && typeof sets === 'number' && !isNaN(sets)) {
+      if (sets !== undefined && typeof sets === "number" && !isNaN(sets)) {
         updateData.sets = sets;
-      } else if (sets === null) { updateData.sets = null; }
+      } else if (sets === null) {
+        updateData.sets = null;
+      }
 
-      if (distanceKm !== undefined && typeof distanceKm === 'number' && !isNaN(distanceKm)) {
+      if (
+        distanceKm !== undefined &&
+        typeof distanceKm === "number" &&
+        !isNaN(distanceKm)
+      ) {
         updateData.distanceKm = distanceKm;
-      } else if (distanceKm === null) { updateData.distanceKm = null; }
+      } else if (distanceKm === null) {
+        updateData.distanceKm = null;
+      }
 
-      if (avgHeartRateBpm !== undefined && typeof avgHeartRateBpm === 'number' && !isNaN(avgHeartRateBpm)) {
+      if (
+        avgHeartRateBpm !== undefined &&
+        typeof avgHeartRateBpm === "number" &&
+        !isNaN(avgHeartRateBpm)
+      ) {
         updateData.avgHeartRateBpm = avgHeartRateBpm;
-      } else if (avgHeartRateBpm === null) { updateData.avgHeartRateBpm = null; }
-
+      } else if (avgHeartRateBpm === null) {
+        updateData.avgHeartRateBpm = null;
+      }
 
       const updatedFitnessLog = await prisma.fitnessLog.update({
         where: { id: id, userId: userId }, // Ensure user owns the log
@@ -211,17 +287,22 @@ const fitnessLogController = {
       });
     } catch (error) {
       console.error("Error updating fitness log:", error);
-      if (error.code === 'P2025') { // Prisma error code for record not found
-        return res.status(404).json({ message: "Fitness log not found or unauthorized to update." });
+      if (error.code === "P2025") {
+        // Prisma error code for record not found
+        return res
+          .status(404)
+          .json({
+            message: "Fitness log not found or unauthorized to update.",
+          });
       }
       res.status(500).json({
         message: "An unexpected error occurred while updating the fitness log.",
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       });
     }
   },
 
- 
   async deleteFitnessLog(req, res) {
     try {
       const userId = req.user.userId;
@@ -233,7 +314,11 @@ const fitnessLogController = {
       });
 
       if (!logToDelete) {
-        return res.status(404).json({ message: "Fitness log not found or unauthorized to delete." });
+        return res
+          .status(404)
+          .json({
+            message: "Fitness log not found or unauthorized to delete.",
+          });
       }
 
       await prisma.fitnessLog.delete({
@@ -243,12 +328,18 @@ const fitnessLogController = {
       res.status(204).send(); // 204 No Content for successful deletion
     } catch (error) {
       console.error("Error deleting fitness log:", error);
-      if (error.code === 'P2025') { // Prisma error code for record not found
-        return res.status(404).json({ message: "Fitness log not found or unauthorized to delete." });
+      if (error.code === "P2025") {
+        // Prisma error code for record not found
+        return res
+          .status(404)
+          .json({
+            message: "Fitness log not found or unauthorized to delete.",
+          });
       }
       res.status(500).json({
         message: "An unexpected error occurred while deleting the fitness log.",
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+        error:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       });
     }
   },

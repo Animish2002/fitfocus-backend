@@ -1,4 +1,5 @@
 const { PrismaClient } = require("@prisma/client");
+const notificationController = require("./notificationController");
 
 const prisma = new PrismaClient();
 
@@ -10,12 +11,10 @@ const scheduleController = {
 
       // Basic validation
       if (!activity || !time || !type || !status || !date) {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Missing required fields: activity, time, type, status, date.",
-          });
+        return res.status(400).json({
+          message:
+            "Missing required fields: activity, time, type, status, date.",
+        });
       }
 
       // Validate date format
@@ -37,6 +36,17 @@ const scheduleController = {
           userId, // Link to the authenticated user
         },
       });
+      await notificationController.sendNotificationToUser(
+        userId,
+        "Activity Scheduled! 🗓️",
+        `"${newScheduleItem.activity}" is now scheduled for ${
+          newScheduleItem.date.toISOString().split("T")[0]
+        } at ${newScheduleItem.time}.`,
+        "/dashboard/schedule" // Link to schedule page
+      );
+      console.log(
+        `Notification sent for new schedule item: ${newScheduleItem.activity}`
+      );
 
       res.status(201).json({
         message: "Schedule item created successfully.",
@@ -140,12 +150,22 @@ const scheduleController = {
       });
     }
   },
-
   async updateScheduleItem(req, res) {
     try {
       const userId = req.user.userId;
       const { id } = req.params;
       const { activity, time, type, status, date, notes } = req.body;
+
+      // 1. Fetch the existing schedule item BEFORE updating
+      const existingScheduleItem = await prisma.scheduleItem.findUnique({
+        where: { id: id, userId: userId },
+      });
+
+      if (!existingScheduleItem) {
+        return res.status(404).json({
+          message: "Schedule item not found or unauthorized to update.",
+        });
+      }
 
       // Prepare data for update, only include provided fields
       const updateData = {};
@@ -170,6 +190,36 @@ const scheduleController = {
         data: updateData,
       });
 
+      // Now you can safely use existingScheduleItem
+      const wasCompleted = updatedScheduleItem.status === "completed";
+      const hadPreviouslyCompleted =
+        existingScheduleItem.status === "completed";
+      const wasInProgress = updatedScheduleItem.status === "in-progress";
+      const hadPreviouslyInProgress =
+        existingScheduleItem.status === "in-progress";
+
+      if (wasCompleted && !hadPreviouslyCompleted) {
+        await notificationController.sendNotificationToUser(
+          userId,
+          "Activity Completed! ✅",
+          `You marked "${updatedScheduleItem.activity}" as completed. Great job!`,
+          "/dashboard/schedule"
+        );
+        console.log(
+          `Notification sent for completed schedule item: ${updatedScheduleItem.activity}`
+        );
+      } else if (wasInProgress && !hadPreviouslyInProgress) {
+        await notificationController.sendNotificationToUser(
+          userId,
+          "Activity In Progress! ⏳",
+          `"${updatedScheduleItem.activity}" is now in progress. Keep pushing!`,
+          "/dashboard/schedule"
+        );
+        console.log(
+          `Notification sent for in-progress schedule item: ${updatedScheduleItem.activity}`
+        );
+      }
+
       res.status(200).json({
         message: "Schedule item updated successfully.",
         scheduleItem: updatedScheduleItem,
@@ -178,11 +228,9 @@ const scheduleController = {
       console.error("Error updating schedule item:", error);
       if (error.code === "P2025") {
         // Prisma error code for record not found
-        return res
-          .status(404)
-          .json({
-            message: "Schedule item not found or unauthorized to update.",
-          });
+        return res.status(404).json({
+          message: "Schedule item not found or unauthorized to update.",
+        });
       }
       res.status(500).json({
         message:
@@ -204,11 +252,9 @@ const scheduleController = {
       });
 
       if (!itemToDelete) {
-        return res
-          .status(404)
-          .json({
-            message: "Schedule item not found or unauthorized to delete.",
-          });
+        return res.status(404).json({
+          message: "Schedule item not found or unauthorized to delete.",
+        });
       }
 
       await prisma.scheduleItem.delete({
@@ -220,11 +266,9 @@ const scheduleController = {
       console.error("Error deleting schedule item:", error);
       if (error.code === "P2025") {
         // Prisma error code for record not found
-        return res
-          .status(404)
-          .json({
-            message: "Schedule item not found or unauthorized to delete.",
-          });
+        return res.status(404).json({
+          message: "Schedule item not found or unauthorized to delete.",
+        });
       }
       res.status(500).json({
         message:
