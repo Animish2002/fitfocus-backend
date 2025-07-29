@@ -6,8 +6,8 @@ const prisma = new PrismaClient();
 // Configure web-push with your VAPID keys
 webpush.setVapidDetails(
   process.env.VAPID_SUBJECT,
-  process.env.PUBLIC_KEY,
-  process.env.PRIVATE_KEY
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY 
 );
 
 const notificationController = {
