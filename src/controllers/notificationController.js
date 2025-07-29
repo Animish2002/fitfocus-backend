@@ -46,6 +46,8 @@ const notificationController = {
         },
       });
 
+console.log(`Subscription successful for user ${userId} to endpoint: ${subscription.endpoint}`);
+
       res.status(201).json({ message: 'Subscription successful.' });
     } catch (error) {
       console.error('Error subscribing user:', error);
