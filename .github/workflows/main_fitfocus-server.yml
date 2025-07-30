@@ -34,6 +34,7 @@ jobs:
         with:
           name: node-app
           path: .
+# ... (previous parts of your workflow) ...
 
   deploy:
     runs-on: ubuntu-latest
@@ -47,13 +48,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app
-      
+          
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_9F4D19FB73404FD589DC354EF977A8BE }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_537D799D19094D8FA4C42DCD7772CF51 }}
+          # CRITICAL FIX: Use the actual secret names from your GitHub repository
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENT_ID_9F4D19FB73404FD589DC354EF977A8BE }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANT_ID_537D799D19094D8F4AC42DCD7772CF51 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_BF0ED3692AD7452F9896B49B1D6A5A4A }}
+          # The auth-type is SERVICE_PRINCIPAL by default when these are provided.
+          # You can remove 'auth-type: SERVICE_PRINCIPAL' if you had it, as it's implicit.
+          # If you are using OIDC, ensure 'enable-AzPSsession: false' and 'allow-no-subscriptions: false'
+          # are configured as per your OIDC setup, but the primary issue here is missing client/tenant IDs.
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
@@ -62,4 +68,9 @@ jobs:
           app-name: 'fitfocus-server'
           slot-name: 'Production'
           package: .
+          startup-command: |
+            npm install
+            npx prisma generate
+            npm start
+
           
