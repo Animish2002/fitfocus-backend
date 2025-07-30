@@ -51,15 +51,15 @@ jobs:
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_C0AF0094F15E49789E2E304D34B30E8C }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_4C9C2DED5BA54C898BD336201CE3A9FE }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_D06639443A644811B45398C1B799BBD0 }}
+          client-id: ${{ secrets.__clientidsecretname__ }}
+          tenant-id: ${{ secrets.__tenantidsecretname__ }}
+          subscription-id: ${{ secrets.__subscriptionidsecretname__ }}
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'FitFocusBackend'
+          app-name: 'fitfocus-server'
           slot-name: 'Production'
           package: .
           
