@@ -31,14 +31,14 @@ jobs:
           npx prisma generate
 
       - name: Upload artifact for deployment job
-  uses: actions/upload-artifact@v4
-  with:
-    name: node-app
-    path: |
-      .
-      !node_modules/.cache
-      !**/*.test.js
-      !**/__tests__/**
+        uses: actions/upload-artifact@v4
+        with:
+            name: node-app
+            path: |
+              .
+              !node_modules/.cache
+              !**/*.test.js
+              !**/__tests__/**
 
   deploy:
     runs-on: ubuntu-latest
