@@ -5,6 +5,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  output   = "./node_modules/@prisma/client"
 }
 
 datasource db {
@@ -28,12 +29,12 @@ model User {
   bmi        Decimal?
 
   // Relationships: A user can have many of these
-  scheduleItems ScheduleItem[]
-  fitnessLogs   FitnessLog[]
-  studySessions StudySession[]
-  goals         Goal[]
-  conversations Conversation[]
-  pushSubscriptions PushSubscription[] 
+  scheduleItems     ScheduleItem[]
+  fitnessLogs       FitnessLog[]
+  studySessions     StudySession[]
+  goals             Goal[]
+  conversations     Conversation[]
+  pushSubscriptions PushSubscription[]
 }
 
 // ScheduleItem Model
@@ -151,13 +152,13 @@ model Message {
 }
 
 model PushSubscription {
-  id        String    @id @default(uuid())
+  id        String   @id @default(uuid())
   userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  endpoint  String    @unique // The unique URL for the push service
-  p256dh    String    // Auth key
-  auth      String    // Encryption key
-  createdAt DateTime  @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique // The unique URL for the push service
+  p256dh    String // Auth key
+  auth      String // Encryption key
+  createdAt DateTime @default(now())
 
   @@unique([userId, endpoint]) // A user should only have one subscription per endpoint
 }

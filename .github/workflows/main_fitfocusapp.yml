@@ -21,7 +21,7 @@ jobs:
       - name: Set up Node.js version
         uses: actions/setup-node@v3
         with:
-          node-version: '22.x'
+          node-version: "22.x"
 
       - name: npm install, build, and test
         run: |
@@ -31,10 +31,14 @@ jobs:
           npx prisma generate
 
       - name: Upload artifact for deployment job
-        uses: actions/upload-artifact@v4
-        with:
-          name: node-app
-          path: .
+  uses: actions/upload-artifact@v4
+  with:
+    name: node-app
+    path: |
+      .
+      !node_modules/.cache
+      !**/*.test.js
+      !**/__tests__/**
 
   deploy:
     runs-on: ubuntu-latest
@@ -48,7 +52,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app
-      
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -56,12 +60,10 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_94C25F409A714BB38C67428BAE8E789A }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E816471119F448D384BC759D9BB528C6 }}
 
-      - name: 'Deploy to Azure Web App'
+      - name: "Deploy to Azure Web App"
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'FitFocusApp'
-          slot-name: 'Production'
+          app-name: "FitFocusApp"
+          slot-name: "Production"
           package: .
-
-          
