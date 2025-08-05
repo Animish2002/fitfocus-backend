@@ -8,15 +8,28 @@ const frontendUrl = process.env.FRONTEND_URL;
 app.use(express.json());
 
 // CORS Configuration
-app.use(
-  cors({
-    // origin: frontendUrl, // Replace with your frontend URL in production
-    // methods: "GET,HEAD,PUT,PATCH,POST,DELETE", // Specify allowed HTTP methods
-    // credentials: true, // Allow cookies, authorization headers, etc.
-    // optionsSuccessStatus: 204, // For preflight requests
-  })
-);
+app.use((req, res, next) => {
+  // Set the Access-Control-Allow-Origin header to your frontend URL
+  res.setHeader("Access-Control-Allow-Origin", frontendUrl);
+  // Set the allowed HTTP methods
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, OPTIONS"
+  );
+  // Set the allowed headers
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  // Allow credentials
+  res.setHeader("Access-Control-Allow-Credentials", "true");
 
+  // Handle the preflight OPTIONS request
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+  } else {
+    next();
+  }
+});
+
+// Routes
 const authRoutes = require("./src/routes/authRoutes");
 app.use("/api/auth", authRoutes);
 
