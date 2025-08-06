@@ -1,0 +1,164 @@
+// prisma/schema.prisma
+
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma-client"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// User Model
+// Represents a user in the system.
+// The `id` is a UUID, compatible with Supabase's default user IDs.
+model User {
+  id         String   @id @default(uuid()) // Unique ID for the user, UUID for Supabase compatibility
+  email      String   @unique // User's email, must be unique
+  password   String // Hashed password (store securely, never plain text)
+  name       String? // Optional user's name
+  createdAt  DateTime @default(now()) // Timestamp when the user was created
+  updatedAt  DateTime @updatedAt // Timestamp when the user was last updated
+  age        Int?
+  bodyweight Decimal?
+  bmi        Decimal?
+
+  // Relationships: A user can have many of these
+  scheduleItems     ScheduleItem[]
+  fitnessLogs       FitnessLog[]
+  studySessions     StudySession[]
+  goals             Goal[]
+  conversations     Conversation[]
+  pushSubscriptions PushSubscription[]
+}
+
+// ScheduleItem Model
+// Represents a planned activity in the user's daily/weekly schedule.
+model ScheduleItem {
+  id       String   @id @default(uuid())
+  activity String // Description of the activity (e.g., "Morning Workout", "QA Practice")
+  time     String // Time of the activity (e.g., "06:00 AM", "11:00")
+  type     String // Category of the activity (e.g., "fitness", "study", "misc", "work", "wellness")
+  status   String // Current status (e.g., "completed", "in-progress", "pending")
+  date     DateTime @default(dbgenerated("CURRENT_DATE")) // The date for this scheduled item. Use CURRENT_DATE for just date.
+  notes    String? // Optional notes for the activity
+
+  // Relationship to User: Each schedule item belongs to one user
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade) // Cascade delete if user is removed
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// FitnessLog Model
+// Represents a logged fitness activity or workout session.
+model FitnessLog {
+  id              String   @id @default(uuid())
+  workoutName     String // Name of the workout (e.g., "Morning HIIT", "Strength Training")
+  durationMinutes Int // Duration of the workout in minutes
+  caloriesBurned  Int? // Optional: Estimated calories burned
+  date            DateTime @default(now()) // Date and time of the workout
+  type            String? // Type of workout (e.g., "Cardio", "Weight Training", "Yoga", "Other")
+
+  // Specific fields for different workout types (optional)
+  weightLiftedKg  Float? // For weight training: total weight lifted in kg
+  reps            Int? // For weight training: average reps per set
+  sets            Int? // For weight training: number of sets
+  distanceKm      Float? // For cardio: distance covered in km
+  avgHeartRateBpm Int? // Average heart rate during the workout
+
+  // Relationship to User: Each fitness log belongs to one user
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// StudySession Model
+// Represents a logged study session.
+model StudySession {
+  id              String   @id @default(uuid())
+  topic           String // Topic studied (e.g., "Algebra Basics", "Reading Comprehension")
+  durationMinutes Int // Duration of the session in minutes
+  date            DateTime @default(now()) // Date and time of the study session
+  notes           String? // Optional notes or key takeaways from the session
+  status          String // Status (e.g., "completed", "in-progress")
+
+  // Relationship to User: Each study session belongs to one user
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Goal Model
+// Represents a long-term goal for the user.
+model Goal {
+  id          String    @id @default(uuid())
+  name        String // Name of the goal (e.g., "Complete CAT Syllabus", "Run a Half Marathon")
+  category    String // Category of the goal (e.g., "Study", "Fitness", "Personal Development", "Wellness")
+  progress    Int       @default(0) // Current progress (0-100%)
+  targetValue Float? // Optional: A numerical target value (e.g., 10 for books, 21.1 for km)
+  unit        String? // Optional: Unit for the target value (e.g., "books", "km", "kg")
+  dueDate     DateTime? // Optional: Target completion date
+  status      String // Current status (e.g., "In Progress", "Completed", "Pending", "Archived")
+  description String? // Optional: Detailed description of the goal
+
+  // Relationship to User: Each goal belongs to one user
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Conversation Model
+// Represents an ongoing or past conversation with the AI assistant.
+model Conversation {
+  id     String @id @default(uuid())
+  title  String // A brief title for the conversation (e.g., "Workout Plan Request", "Study Tips")
+  // Relationship to User: Each conversation belongs to one user
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  messages Message[] // A conversation can have many messages
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Message Model
+// Represents a single message within an AI conversation.
+model Message {
+  id        String   @id @default(uuid())
+  role      String // "user" or "ai"
+  text      String // The content of the message
+  timestamp DateTime @default(now()) // When the message was sent/received
+
+  // Relationship to Conversation: Each message belongs to one conversation
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) // Redundant with timestamp, but good for consistent auditing
+  updatedAt DateTime @updatedAt
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique // The unique URL for the push service
+  p256dh    String // Auth key
+  auth      String // Encryption key
+  createdAt DateTime @default(now())
+
+  @@unique([userId, endpoint]) // A user should only have one subscription per endpoint
+}
