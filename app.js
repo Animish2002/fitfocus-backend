@@ -61,6 +61,10 @@ app.get("/", (req, res) => {
   res.send("FitFocus Backend API is running!");
 });
 
+app.get("/ping", (req, res) => {
+res.status(200).send("Fitfocus server is awake")
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
